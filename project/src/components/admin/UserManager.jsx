@@ -5,7 +5,7 @@ import { getAllUsers, updateUserRole, deleteUser, createUserByAdmin } from '../.
 
 const APP_URL = window.location.origin;
 
-const AddUserModal = ({ onClose, onUserCreated }) => {
+const AddUserModal = ({ onClose, onUserCreated, customerId }) => {
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
@@ -67,7 +67,7 @@ const AddUserModal = ({ onClose, onUserCreated }) => {
     setError(null);
     try {
       const actualPassword = password || generateRandomPassword();
-      const newUser = await createUserByAdmin(email, actualPassword, displayName);
+      const newUser = await createUserByAdmin(email, actualPassword, displayName, customerId);
       onUserCreated(newUser);
       setCreatedResult({ email, password: actualPassword, displayName });
     } catch (err) {
@@ -250,7 +250,7 @@ const AddUserModal = ({ onClose, onUserCreated }) => {
 };
 
 const UserManager = () => {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, customerId } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -380,17 +380,9 @@ const UserManager = () => {
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="font-medium text-gray-900">{user.displayName || 'No Name'}</h3>
-                      {user.role === 'admin' ? (
+                      {user.role === 'admin' && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded-full font-medium">
                           <Crown className="w-3 h-3" />管理者
-                        </span>
-                      ) : user.subscriptionStatus === 'active' ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded-full font-medium">
-                          <Crown className="w-3 h-3" />PRO会員
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-gray-100 text-gray-500 rounded-full font-medium">
-                          無料
                         </span>
                       )}
                     </div>
@@ -426,6 +418,7 @@ const UserManager = () => {
       {/* Add User Modal */}
       {showAddModal && (
         <AddUserModal
+          customerId={customerId}
           onClose={() => setShowAddModal(false)}
           onUserCreated={(newUser) => {
             setUsers(prev => [...prev, newUser]);

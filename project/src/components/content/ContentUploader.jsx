@@ -8,7 +8,7 @@ import Layout from '../layout/Layout';
 const ContentUploader = () => {
   const { classroomId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, customerId } = useAuth();
   const fileInputRef = useRef(null);
 
   // Upload mode: 'single' or 'bulk'
@@ -42,8 +42,8 @@ const ContentUploader = () => {
       try {
         setIsLoading(true);
         const [classroomData, contents] = await Promise.all([
-          getClassroom(classroomId),
-          getContents(classroomId)
+          getClassroom(customerId, classroomId),
+          getContents(customerId, classroomId)
         ]);
         setClassroom(classroomData);
         setExistingContentCount(contents.length);
@@ -298,7 +298,7 @@ const ContentUploader = () => {
     }
 
     // Create content document
-    await createContent(contentData, classroomId, user.uid);
+    await createContent(customerId, contentData, classroomId, user.uid);
   };
 
   // Handle single upload

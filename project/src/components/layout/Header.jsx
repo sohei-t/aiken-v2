@@ -148,7 +148,7 @@ const ChangePasswordModal = ({ onClose }) => {
 };
 
 const Header = () => {
-  const { isAuthenticated, isAdmin, isSubscriber, userData, user, logout } = useAuth();
+  const { isAuthenticated, isAdmin, userData, user, logout } = useAuth();
   const navigate = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -237,27 +237,6 @@ const Header = () => {
                           </span>
                         )}
                       </div>
-                      {/* Subscription badge */}
-                      {!isAdmin && (
-                        isSubscriber ? (
-                          <div className="px-4 py-2 border-b border-gray-100">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-green-100 text-green-700 rounded-full font-medium">
-                              PRO会員
-                            </span>
-                          </div>
-                        ) : (
-                          <Link
-                            to="/pricing"
-                            onClick={() => setShowUserMenu(false)}
-                            className="flex items-center gap-2 px-4 py-2 border-b border-gray-100 hover:bg-gray-50 transition-colors"
-                          >
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-amber-100 text-amber-700 rounded-full font-medium">
-                              無料プラン
-                            </span>
-                            <span className="text-xs text-indigo-600">PRO会員になる</span>
-                          </Link>
-                        )
-                      )}
                       {/* Account settings */}
                       <Link
                         to="/account"

@@ -1057,7 +1057,7 @@ const convertToYouTubeEmbedUrl = (url) => {
 const ViewerPage = () => {
   const { contentId } = useParams();
   const navigate = useNavigate();
-  const { isAuthenticated, isAdmin, isSubscriber, user, loading: authLoading } = useAuth();
+  const { isAuthenticated, isAdmin, customerId, user, loading: authLoading } = useAuth();
   const [content, setContent] = useState(null);
   const [classroom, setClassroom] = useState(null);
   const [allContents, setAllContents] = useState([]);
@@ -1095,7 +1095,7 @@ const ViewerPage = () => {
     const fetchData = async () => {
       try {
         // Get content (critical - without this, nothing can render)
-        const contentData = await getContent(contentId);
+        const contentData = await getContent(customerId, contentId);
         if (!contentData) {
           setError('コンテンツが見つかりません');
           setLoading(false);
@@ -1105,7 +1105,7 @@ const ViewerPage = () => {
 
         // Get classroom (non-critical for viewing, but needed for navigation label)
         try {
-          const classroomData = await getClassroom(contentData.classroomId);
+          const classroomData = await getClassroom(customerId, contentData.classroomId);
           setClassroom(classroomData);
         } catch (e) {
           console.warn('Failed to fetch classroom:', e);
@@ -1115,7 +1115,7 @@ const ViewerPage = () => {
 
         // Get all contents in this classroom for navigation (non-critical)
         try {
-          const contents = await getContents(contentData.classroomId);
+          const contents = await getContents(customerId, contentData.classroomId);
           setAllContents(contents);
           const index = contents.findIndex(c => c.id === contentId);
           setCurrentIndex(index);
@@ -1127,7 +1127,7 @@ const ViewerPage = () => {
         }
 
         // Check access
-        const access = await hasClassroomAccess(user?.uid, contentData.classroomId, isAdmin);
+        const access = await hasClassroomAccess(customerId, user?.uid, contentData.classroomId, isAdmin);
         setHasAccess(access);
 
         // Record watch history (for both authenticated and anonymous users)
@@ -1248,7 +1248,7 @@ const ViewerPage = () => {
   };
 
   const handleAudioEnded = () => {
-    const nextIsLocked = !isAdmin && !isSubscriber && classroom?.accessType !== 'free';
+    const nextIsLocked = false; // B2B: all customer members have full access
     if (autoNext && hasNext && !nextIsLocked) {
       // Short delay before auto-navigating
       setTimeout(() => {
@@ -1283,47 +1283,6 @@ const ViewerPage = () => {
               <ArrowLeft className="w-5 h-5" />
               ホームに戻る
             </Link>
-          </div>
-        </div>
-      </Layout>
-    );
-  }
-
-  // Check if this content is locked (subscriber/admin only)
-  const isLocked = !isAdmin && !isSubscriber && classroom?.accessType !== 'free';
-
-  if (isLocked) {
-    return (
-      <Layout>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
-            <div className="mx-auto w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center mb-6">
-              <Lock className="w-10 h-10 text-amber-600" />
-            </div>
-            <h2 className="text-2xl font-bold text-gray-900">会員限定コンテンツ</h2>
-            <p className="mt-3 text-gray-600 max-w-md mx-auto">
-              「{content.title}」はサブスク会員限定のコンテンツです。
-            </p>
-            <p className="mt-2 text-sm text-gray-500">
-              すべてのコンテンツを視聴するには、サブスクリプションへのご登録が必要です。
-            </p>
-            <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
-              <Link
-                to="/pricing"
-                className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                {isAuthenticated ? 'サブスクリプションに登録' : 'ログインして登録'}
-              </Link>
-              {classroom && (
-                <Link
-                  to={`/classroom/${classroom.id}`}
-                  className="inline-flex items-center gap-2 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  <ArrowLeft className="w-5 h-5" />
-                  教室に戻る
-                </Link>
-              )}
-            </div>
           </div>
         </div>
       </Layout>

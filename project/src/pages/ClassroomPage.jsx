@@ -105,7 +105,7 @@ const getBadge = (content) => {
   return null;
 };
 
-const ContentListItem = ({ content, isAdmin, onDelete, watchedInfo, isLocked }) => {
+const ContentListItem = ({ content, isAdmin, onDelete, watchedInfo, isLocked, customerId }) => {
   const [deleting, setDeleting] = useState(false);
   const badge = getBadge(content);
 
@@ -137,7 +137,7 @@ const ContentListItem = ({ content, isAdmin, onDelete, watchedInfo, isLocked }) 
 
     setDeleting(true);
     try {
-      await deleteContent(content.id);
+      await deleteContent(customerId, content.id);
       onDelete(content.id);
     } catch (err) {
       console.error('Failed to delete content:', err);
@@ -367,7 +367,7 @@ const ClassroomPage = () => {
   const { classroomId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { isAuthenticated, isAdmin, isSubscriber, user, loading: authLoading } = useAuth();
+  const { isAuthenticated, isAdmin, customerId, user, loading: authLoading } = useAuth();
   const [classroom, setClassroom] = useState(null);
   const [contents, setContents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -439,7 +439,7 @@ const ClassroomPage = () => {
     const fetchData = async () => {
       try {
         // Get classroom info
-        const classroomData = await getClassroom(classroomId);
+        const classroomData = await getClassroom(customerId, classroomId);
         if (!classroomData) {
           setError('教室が見つかりません');
           setLoading(false);
@@ -449,7 +449,7 @@ const ClassroomPage = () => {
 
         // Get hierarchy for breadcrumb (non-critical: don't block page on failure)
         try {
-          const hierarchyData = await getClassroomHierarchy(classroomId);
+          const hierarchyData = await getClassroomHierarchy(customerId, classroomId);
           setHierarchy(hierarchyData);
         } catch (e) {
           console.warn('Failed to fetch hierarchy:', e);
@@ -457,17 +457,17 @@ const ClassroomPage = () => {
         }
 
         // Check access
-        const access = await hasClassroomAccess(user?.uid, classroomId, isAdmin);
+        const access = await hasClassroomAccess(customerId, user?.uid, classroomId, isAdmin);
         setHasAccess(access);
 
         if (access) {
-          const contentsData = await getContents(classroomId);
+          const contentsData = await getContents(customerId, classroomId);
           setContents(contentsData);
 
           // Get child classrooms (non-critical: may fail for unauthenticated users
           // if there are private child classrooms due to Firestore security rules)
           try {
-            const children = await getChildClassrooms(classroomId, isAdmin);
+            const children = await getChildClassrooms(customerId, classroomId, isAdmin);
             setChildClassrooms(children);
           } catch (e) {
             console.warn('Failed to fetch child classrooms:', e);
@@ -707,7 +707,6 @@ const ClassroomPage = () => {
               {/* Content List */}
               <div>
                 {paginatedContents.map((content) => {
-                  const isLocked = !isAdmin && !isSubscriber && classroom?.accessType !== 'free';
                   return (
                     <ContentListItem
                       key={content.id}
@@ -715,28 +714,13 @@ const ClassroomPage = () => {
                       isAdmin={isAdmin}
                       onDelete={(id) => setContents(prev => prev.filter(c => c.id !== id))}
                       watchedInfo={watchHistory[content.id]}
-                      isLocked={isLocked}
+                      isLocked={false}
+                      customerId={customerId}
                     />
                   );
                 })}
               </div>
             </div>
-
-            {/* Subscription CTA Banner */}
-            {!isAdmin && !isSubscriber && classroom?.accessType !== 'free' && (
-              <div className="mt-6 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-6 text-white">
-                <h3 className="text-lg font-bold">すべてのコンテンツにアクセス</h3>
-                <p className="mt-1 text-indigo-100 text-sm">
-                  月額¥500でHTMLスライド・音声解説が見放題
-                </p>
-                <Link
-                  to="/pricing"
-                  className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 bg-white text-indigo-600 font-medium rounded-lg hover:bg-indigo-50 transition-colors"
-                >
-                  サブスクリプションに登録
-                </Link>
-              </div>
-            )}
 
             {/* Pagination */}
             <Pagination
