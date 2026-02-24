@@ -3,7 +3,7 @@ import { signInWithGoogle, signInWithEmail, signUpWithEmail, logout } from '../s
 import { useAuthContext } from '../components/auth/AuthProvider';
 
 export const useAuth = () => {
-  const { user, userData, loading, isAdmin, isAuthenticated, isSubscriber, refreshUserData } = useAuthContext();
+  const { user, userData, customerData, customerId, loading, isAdmin, isAuthenticated, refreshUserData } = useAuthContext();
   const [authLoading, setAuthLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -62,10 +62,11 @@ export const useAuth = () => {
   return {
     user,
     userData,
+    customerData,
+    customerId,
     loading: loading || authLoading,
     isAdmin,
     isAuthenticated,
-    isSubscriber,
     error,
     signInWithGoogle: handleGoogleSignIn,
     signInWithEmail: handleEmailSignIn,

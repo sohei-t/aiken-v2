@@ -128,7 +128,7 @@ const ClassroomListItem = ({ classroom, progress, childCount = 0, isExpanded, on
 };
 
 const TopPage = () => {
-  const { isAuthenticated, isAdmin, isSubscriber, user, loading: authLoading } = useAuth();
+  const { isAuthenticated, isAdmin, customerId, user, loading: authLoading } = useAuth();
   const [classrooms, setClassrooms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [progressData, setProgressData] = useState({});
@@ -140,17 +140,17 @@ const TopPage = () => {
   useEffect(() => {
     const fetchClassrooms = async () => {
       try {
-        const data = await getClassrooms(isAuthenticated, user?.uid, isAdmin);
+        const data = await getClassrooms(customerId, isAdmin);
         setClassrooms(data);
 
         // Admin: auto-repair desynced contentCount in background (once per session)
         if (isAdmin && !syncedRef.current) {
           syncedRef.current = true;
-          syncContentCounts()
+          syncContentCounts(customerId)
             .then(n => {
               if (n > 0) {
                 // Re-fetch with corrected counts
-                getClassrooms(true, user?.uid, true).then(setClassrooms);
+                getClassrooms(customerId, true).then(setClassrooms);
               }
             })
             .catch(() => {});
@@ -165,7 +165,7 @@ const TopPage = () => {
     if (!authLoading) {
       fetchClassrooms();
     }
-  }, [isAuthenticated, isAdmin, user, authLoading]);
+  }, [isAuthenticated, isAdmin, customerId, user, authLoading]);
 
   // Fetch progress data for each classroom
   // Use classrooms.length as dependency to avoid reference comparison issues
@@ -180,7 +180,7 @@ const TopPage = () => {
       // Fetch contents and watch history for each classroom
       for (const classroom of classrooms) {
         try {
-          const contents = await getContents(classroom.id);
+          const contents = await getContents(customerId, classroom.id);
           if (contents.length === 0) {
             progress[classroom.id] = { watchedCount: 0, totalCount: 0, totalDuration: 0 };
             continue;
@@ -321,21 +321,14 @@ const TopPage = () => {
             <p className="mt-4 text-lg text-blue-100 max-w-2xl mx-auto">
               HTMLスライドと音声解説で、効率的に学習を進めましょう
             </p>
-            {!isAuthenticated ? (
+            {!isAuthenticated && (
               <Link
                 to="/login"
                 className="mt-8 inline-flex items-center gap-2 px-6 py-3 bg-white text-blue-600 font-medium rounded-lg hover:bg-blue-50 transition-colors"
               >
                 ログインして全ての教室にアクセス
               </Link>
-            ) : !isAdmin && !isSubscriber ? (
-              <Link
-                to="/pricing"
-                className="mt-8 inline-flex items-center gap-2 px-6 py-3 bg-white text-blue-600 font-medium rounded-lg hover:bg-blue-50 transition-colors"
-              >
-                月額¥500ですべてのコンテンツにアクセス
-              </Link>
-            ) : null}
+            )}
           </div>
         </div>
       </div>

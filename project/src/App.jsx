@@ -3,7 +3,6 @@ import { AuthProvider } from './components/auth/AuthProvider';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import TopPage from './pages/TopPage';
 import LoginPage from './pages/LoginPage';
-import PricingPage from './pages/PricingPage';
 import AccountPage from './pages/AccountPage';
 import ClassroomPage from './pages/ClassroomPage';
 import ViewerPage from './pages/ViewerPage';
@@ -22,9 +21,6 @@ function App() {
           {/* Public Routes */}
           <Route path="/" element={<TopPage />} />
           <Route path="/login" element={<LoginPage />} />
-
-          {/* Pricing */}
-          <Route path="/pricing" element={<PricingPage />} />
 
           {/* Account - Protected */}
           <Route path="/account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />

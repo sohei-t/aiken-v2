@@ -5,7 +5,7 @@ import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, us
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useAuth } from '../../hooks/useAuth';
-import { getClassrooms, createClassroom, updateClassroom, deleteClassroom, getContents, deleteContent, updateClassroomOrders, updateContentOrders, deleteClassrooms, deleteContents, getRootClassrooms, cleanupOrphanedClassrooms } from '../../services/firebase';
+import { getClassrooms, createClassroom, updateClassroom, deleteClassroom, getContents, deleteContent, updateClassroomOrders, updateContentOrders, deleteClassrooms, deleteContents, cleanupOrphanedClassrooms } from '../../services/firebase';
 
 const ClassroomForm = ({ classroom, onSave, onCancel, parentClassrooms = [], initialParentId = null }) => {
   const [name, setName] = useState(classroom?.name || '');
@@ -253,6 +253,7 @@ const SortableContentItem = ({ content, isSelected, onSelect, onDelete, deleting
 
 // Content list for a classroom with drag-and-drop and bulk delete
 const ClassroomContents = ({ classroomId, onMessage, onContentCountChange }) => {
+  const { customerId } = useAuth();
   const [contents, setContents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
@@ -269,7 +270,7 @@ const ClassroomContents = ({ classroomId, onMessage, onContentCountChange }) => 
   useEffect(() => {
     const fetchContents = async () => {
       try {
-        const data = await getContents(classroomId);
+        const data = await getContents(customerId, classroomId);
         setContents(data);
       } catch (err) {
         console.error('Failed to fetch contents:', err);
@@ -294,7 +295,7 @@ const ClassroomContents = ({ classroomId, onMessage, onContentCountChange }) => 
 
     // Save to Firestore
     try {
-      await updateContentOrders(newContents);
+      await updateContentOrders(customerId, newContents);
       onMessage({ type: 'success', text: 'コンテンツの順序を更新しました' });
     } catch (err) {
       console.error('Failed to update content order:', err);
@@ -330,7 +331,7 @@ const ClassroomContents = ({ classroomId, onMessage, onContentCountChange }) => 
 
     setDeletingId(content.id);
     try {
-      await deleteContent(content.id);
+      await deleteContent(customerId, content.id);
       setContents(contents.filter(c => c.id !== content.id));
       setSelectedIds(prev => {
         const newSet = new Set(prev);
@@ -357,7 +358,7 @@ const ClassroomContents = ({ classroomId, onMessage, onContentCountChange }) => 
 
     setBulkDeleting(true);
     try {
-      await deleteContents(Array.from(selectedIds));
+      await deleteContents(customerId, Array.from(selectedIds));
       setContents(contents.filter(c => !selectedIds.has(c.id)));
       onMessage({ type: 'success', text: `${count}件のコンテンツを削除しました` });
       onContentCountChange && onContentCountChange(-count);
@@ -611,7 +612,7 @@ const SortableClassroomItem = ({
 };
 
 const ClassroomManager = () => {
-  const { user } = useAuth();
+  const { user, customerId } = useAuth();
   const [classrooms, setClassrooms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingClassroom, setEditingClassroom] = useState(null);
@@ -631,7 +632,7 @@ const ClassroomManager = () => {
 
   const fetchClassrooms = async () => {
     try {
-      const data = await getClassrooms(true, user?.uid, true);
+      const data = await getClassrooms(customerId, true);
       setClassrooms(data);
     } catch (err) {
       console.error('Failed to fetch classrooms:', err);
@@ -645,7 +646,7 @@ const ClassroomManager = () => {
     // Auto-fix orphaned classrooms (children whose parent was deleted)
     const initAndFetch = async () => {
       try {
-        const fixed = await cleanupOrphanedClassrooms();
+        const fixed = await cleanupOrphanedClassrooms(customerId);
         if (fixed > 0) {
           console.log(`Auto-fixed ${fixed} orphaned classroom(s)`);
           setMessage({ type: 'success', text: `${fixed}件の孤立した教室を修復しました（ルート教室に移動）` });
@@ -741,7 +742,7 @@ const ClassroomManager = () => {
 
     // Save to Firestore
     try {
-      await updateClassroomOrders(newSiblings);
+      await updateClassroomOrders(customerId, newSiblings);
       setMessage({ type: 'success', text: '教室の順序を更新しました' });
     } catch (err) {
       console.error('Failed to update classroom order:', err);
@@ -772,7 +773,7 @@ const ClassroomManager = () => {
 
   const handleCreate = async (data, parentId) => {
     try {
-      await createClassroom(data, user.uid, parentId);
+      await createClassroom(customerId, data, user.uid, parentId);
       const isChild = !!parentId;
       setMessage({ type: 'success', text: isChild ? '子教室を作成しました' : '教室を作成しました' });
       setIsCreating(false);
@@ -792,7 +793,7 @@ const ClassroomManager = () => {
 
   const handleUpdate = async (data) => {
     try {
-      await updateClassroom(editingClassroom.id, data);
+      await updateClassroom(customerId, editingClassroom.id, data);
       setMessage({ type: 'success', text: '教室を更新しました' });
       setEditingClassroom(null);
       fetchClassrooms();
@@ -813,7 +814,7 @@ const ClassroomManager = () => {
     }
 
     try {
-      await deleteClassroom(classroom.id);
+      await deleteClassroom(customerId, classroom.id);
       setMessage({ type: 'success', text: '教室を削除しました' });
       setSelectedIds(prev => {
         const newSet = new Set(prev);
@@ -837,7 +838,7 @@ const ClassroomManager = () => {
 
     setBulkDeleting(true);
     try {
-      await deleteClassrooms(Array.from(selectedIds));
+      await deleteClassrooms(customerId, Array.from(selectedIds));
       setMessage({ type: 'success', text: `${count}件の教室を削除しました` });
       setSelectedIds(new Set());
       fetchClassrooms();

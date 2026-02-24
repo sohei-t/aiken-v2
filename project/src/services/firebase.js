@@ -1,9 +1,9 @@
 import { initializeApp, deleteApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, orderBy, serverTimestamp, writeBatch, increment } from 'firebase/firestore';
 import { uploadToDrive, deleteFromDrive, downloadPublicFile } from './driveApi';
 
-// Firebase configuration - Replace with your Firebase project config
+// Firebase configuration
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "YOUR_API_KEY",
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "YOUR_PROJECT.firebaseapp.com",
@@ -13,28 +13,33 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID || "YOUR_APP_ID"
 };
 
-// Initialize Firebase
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
 const googleProvider = new GoogleAuthProvider();
-// Note: Google Drive スコープは不要（サービスアカウント認証を使用）
 
-// Admin email
-const ADMIN_EMAIL = 'pontaro.no1@gmail.com';
+// Platform admin email
+const PLATFORM_ADMIN_EMAIL = 'pontaro.no1@gmail.com';
 
-// Detect in-app browsers (LINE, Instagram, Facebook, etc.)
-// Google blocks OAuth entirely from WebViews ("安全なブラウザの使用" policy)
+// ── Helper: customer-scoped collection path ──
+const customerDoc = (customerId) => doc(db, 'customers', customerId);
+const customerCollection = (customerId, collectionName) =>
+  collection(db, 'customers', customerId, collectionName);
+const customerDocRef = (customerId, collectionName, docId) =>
+  doc(db, 'customers', customerId, collectionName, docId);
+
+// Detect in-app browsers
 export const isInAppBrowser = () => {
   const ua = navigator.userAgent || '';
   return /Line|LIFF|FBAN|FBAV|Instagram|Twitter|MicroMessenger/i.test(ua);
 };
 
+// ══════════════════════════════════════════
 // Auth functions
+// ══════════════════════════════════════════
+
 export const signInWithGoogle = async () => {
-  // Google blocks OAuth from in-app browsers (WebViews) entirely
-  // Neither popup nor redirect works - must use external browser
   if (isInAppBrowser()) {
     throw new Error(
       'アプリ内ブラウザではGoogleログインを使用できません。' +
@@ -68,22 +73,25 @@ export const changePassword = async (currentPassword, newPassword) => {
   await updatePassword(user, newPassword);
 };
 
+// ══════════════════════════════════════════
 // User document management
+// ══════════════════════════════════════════
+
 export const ensureUserDocument = async (user, displayName = null) => {
   const userRef = doc(db, 'users', user.uid);
   const userSnap = await getDoc(userRef);
-  const isAdmin = user.email === ADMIN_EMAIL;
+  const isPlatformAdmin = user.email === PLATFORM_ADMIN_EMAIL;
 
   if (!userSnap.exists()) {
     await setDoc(userRef, {
       email: user.email,
       displayName: displayName || user.displayName || user.email.split('@')[0],
-      role: isAdmin ? 'admin' : 'user',
+      role: isPlatformAdmin ? 'admin' : 'user',
+      customerId: null,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
-  } else if (isAdmin && userSnap.data().role !== 'admin') {
-    // Ensure admin email always has admin role
+  } else if (isPlatformAdmin && userSnap.data().role !== 'admin') {
     await updateDoc(userRef, { role: 'admin', updatedAt: serverTimestamp() });
   }
   return userRef;
@@ -93,27 +101,6 @@ export const getUserData = async (uid) => {
   const userRef = doc(db, 'users', uid);
   const userSnap = await getDoc(userRef);
   return userSnap.exists() ? { id: userSnap.id, ...userSnap.data() } : null;
-};
-
-// ── テストモード: サブスクリプション登録/解約 ──
-// TODO: Stripe本番接続時はこれらの関数を削除し、Cloud Functions経由に切り替える
-export const testSubscribe = async (uid) => {
-  const userRef = doc(db, 'users', uid);
-  await updateDoc(userRef, {
-    subscriptionStatus: 'active',
-    updatedAt: serverTimestamp()
-  });
-};
-
-export const testUnsubscribe = async (uid) => {
-  const userRef = doc(db, 'users', uid);
-  await updateDoc(userRef, {
-    subscriptionStatus: null,
-    subscriptionId: null,
-    subscriptionCurrentPeriodEnd: null,
-    subscriptionCanceledAt: null,
-    updatedAt: serverTimestamp()
-  });
 };
 
 export const updateUserRole = async (uid, role) => {
@@ -127,7 +114,7 @@ export const getAllUsers = async () => {
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 };
 
-export const createUserByAdmin = async (email, password, displayName) => {
+export const createUserByAdmin = async (email, password, displayName, customerId = null) => {
   const secondaryApp = initializeApp(firebaseConfig, 'secondary');
   try {
     const secondaryAuth = getAuth(secondaryApp);
@@ -137,50 +124,81 @@ export const createUserByAdmin = async (email, password, displayName) => {
       email: newUser.email,
       displayName: displayName || email.split('@')[0],
       role: 'user',
+      customerId: customerId,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
     await secondaryAuth.signOut();
-    return { id: newUser.uid, email: newUser.email, displayName: displayName || email.split('@')[0], role: 'user' };
+    return { id: newUser.uid, email: newUser.email, displayName: displayName || email.split('@')[0], role: 'user', customerId };
   } finally {
     await deleteApp(secondaryApp);
   }
 };
 
 export const deleteUser = async (uid) => {
-  // Firestoreのユーザードキュメントとサブコレクションを削除
   const batch = writeBatch(db);
-
-  // 視聴履歴サブコレクションを削除
   const historyRef = collection(db, 'users', uid, 'watchHistory');
   const historyDocs = await getDocs(historyRef);
   historyDocs.forEach(histDoc => batch.delete(histDoc.ref));
-
-  // ユーザードキュメントを削除
   batch.delete(doc(db, 'users', uid));
-
   await batch.commit();
 };
 
-// Classroom functions
-export const getClassrooms = async (isAuthenticated = false, userId = null, isAdmin = false, parentClassroomId = undefined) => {
-  const classroomsRef = collection(db, 'classrooms');
+// ══════════════════════════════════════════
+// Customer (tenant) management
+// ══════════════════════════════════════════
+
+export const getCustomer = async (customerId) => {
+  const ref = customerDoc(customerId);
+  const snap = await getDoc(ref);
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+};
+
+export const createCustomer = async (data) => {
+  const customersRef = collection(db, 'customers');
+  const docRef = await addDoc(customersRef, {
+    ...data,
+    plan: 'trial',
+    trialStartedAt: serverTimestamp(),
+    trialExpiresAt: null,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+  return docRef.id;
+};
+
+export const updateCustomer = async (customerId, data) => {
+  const ref = customerDoc(customerId);
+  await updateDoc(ref, { ...data, updatedAt: serverTimestamp() });
+};
+
+// Assign user to customer
+export const assignUserToCustomer = async (uid, customerId) => {
+  const userRef = doc(db, 'users', uid);
+  await updateDoc(userRef, { customerId, updatedAt: serverTimestamp() });
+};
+
+// ══════════════════════════════════════════
+// Classroom functions (customer-scoped)
+// ══════════════════════════════════════════
+
+export const getClassrooms = async (customerId, isAdmin = false, parentClassroomId = undefined) => {
+  if (!customerId) return [];
+  const classroomsRef = customerCollection(customerId, 'classrooms');
   let q;
 
   if (isAdmin) {
     q = query(classroomsRef, orderBy('order', 'asc'));
   } else {
-    // Non-admin users (authenticated or not) only see public classrooms
     q = query(classroomsRef, where('accessType', 'in', ['public', 'free']));
   }
 
   const snapshot = await getDocs(q);
   let classrooms = snapshot.docs
     .map(doc => ({ id: doc.id, ...doc.data() }))
-    .filter(c => c.isActive !== false) // Allow undefined or true
-    .sort((a, b) => (a.order || 0) - (b.order || 0)); // Sort in JS
+    .filter(c => c.isActive !== false)
+    .sort((a, b) => (a.order || 0) - (b.order || 0));
 
-  // Filter by parentClassroomId if specified
   if (parentClassroomId !== undefined) {
     classrooms = classrooms.filter(c => c.parentClassroomId === parentClassroomId);
   }
@@ -188,30 +206,25 @@ export const getClassrooms = async (isAuthenticated = false, userId = null, isAd
   return classrooms;
 };
 
-// Get root classrooms only (parentClassroomId === null)
-export const getRootClassrooms = async (isAuthenticated = false, userId = null, isAdmin = false) => {
-  return getClassrooms(isAuthenticated, userId, isAdmin, null);
+export const getRootClassrooms = async (customerId, isAdmin = false) => {
+  return getClassrooms(customerId, isAdmin, null);
 };
 
-export const getClassroom = async (classroomId) => {
-  const classroomRef = doc(db, 'classrooms', classroomId);
-  const classroomSnap = await getDoc(classroomRef);
-  return classroomSnap.exists() ? { id: classroomSnap.id, ...classroomSnap.data() } : null;
+export const getClassroom = async (customerId, classroomId) => {
+  if (!customerId) return null;
+  const ref = customerDocRef(customerId, 'classrooms', classroomId);
+  const snap = await getDoc(ref);
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 };
 
-export const createClassroom = async (data, creatorId, parentClassroomId = null) => {
-  const classroomsRef = collection(db, 'classrooms');
+export const createClassroom = async (customerId, data, creatorId, parentClassroomId = null) => {
+  const classroomsRef = customerCollection(customerId, 'classrooms');
 
-  // Calculate depth based on parent
   let depth = 0;
   if (parentClassroomId) {
-    const parentClassroom = await getClassroom(parentClassroomId);
-    if (!parentClassroom) {
-      throw new Error('親教室が見つかりません');
-    }
-    if (parentClassroom.depth >= 2) {
-      throw new Error('階層は3階層までです（親 > 子 > 孫 > コンテンツ）');
-    }
+    const parentClassroom = await getClassroom(customerId, parentClassroomId);
+    if (!parentClassroom) throw new Error('親教室が見つかりません');
+    if (parentClassroom.depth >= 2) throw new Error('階層は3階層までです');
     depth = parentClassroom.depth + 1;
   }
 
@@ -227,9 +240,8 @@ export const createClassroom = async (data, creatorId, parentClassroomId = null)
     isActive: true
   });
 
-  // Increment parent's childCount
   if (parentClassroomId) {
-    const parentRef = doc(db, 'classrooms', parentClassroomId);
+    const parentRef = customerDocRef(customerId, 'classrooms', parentClassroomId);
     await updateDoc(parentRef, {
       childCount: increment(1),
       updatedAt: serverTimestamp()
@@ -239,28 +251,30 @@ export const createClassroom = async (data, creatorId, parentClassroomId = null)
   return docRef.id;
 };
 
-export const updateClassroom = async (classroomId, data) => {
-  const classroomRef = doc(db, 'classrooms', classroomId);
-  await updateDoc(classroomRef, { ...data, updatedAt: serverTimestamp() });
+export const updateClassroom = async (customerId, classroomId, data) => {
+  const ref = customerDocRef(customerId, 'classrooms', classroomId);
+  await updateDoc(ref, { ...data, updatedAt: serverTimestamp() });
 };
 
-// Collect a classroom and all its descendants recursively
-const collectClassroomTree = async (classroomId) => {
+// Collect classroom tree recursively
+const collectClassroomTree = async (customerId, classroomId) => {
   const ids = [classroomId];
-  const childrenQuery = query(collection(db, 'classrooms'), where('parentClassroomId', '==', classroomId));
+  const childrenQuery = query(
+    customerCollection(customerId, 'classrooms'),
+    where('parentClassroomId', '==', classroomId)
+  );
   const childrenSnap = await getDocs(childrenQuery);
   for (const childDoc of childrenSnap.docs) {
-    const descendantIds = await collectClassroomTree(childDoc.id);
+    const descendantIds = await collectClassroomTree(customerId, childDoc.id);
     ids.push(...descendantIds);
   }
   return ids;
 };
 
-// Delete a single file from Drive with proper error logging (returns success/failure)
+// Delete Drive file helper
 const tryDeleteDriveFile = async (fileId, label = '') => {
   try {
     await deleteFromDrive(auth, fileId);
-    console.log(`[Drive] Deleted ${label}: ${fileId}`);
     return true;
   } catch (e) {
     console.error(`[Drive] FAILED to delete ${label}: ${fileId}`, e);
@@ -268,11 +282,14 @@ const tryDeleteDriveFile = async (fileId, label = '') => {
   }
 };
 
-// Delete contents belonging to a set of classrooms (Drive cleanup + Firestore delete)
-const deleteContentsByClassroomIds = async (classroomIds) => {
+// Delete contents by classroom IDs
+const deleteContentsByClassroomIds = async (customerId, classroomIds) => {
   const driveFailures = [];
   for (const cid of classroomIds) {
-    const contentsQuery = query(collection(db, 'contents'), where('classroomId', '==', cid));
+    const contentsQuery = query(
+      customerCollection(customerId, 'contents'),
+      where('classroomId', '==', cid)
+    );
     const contentsSnap = await getDocs(contentsQuery);
     for (const contentDoc of contentsSnap.docs) {
       const data = contentDoc.data();
@@ -289,37 +306,23 @@ const deleteContentsByClassroomIds = async (classroomIds) => {
     contentsSnap.docs.forEach(d => batch.delete(d.ref));
     if (contentsSnap.docs.length > 0) await batch.commit();
   }
-  if (driveFailures.length > 0) {
-    console.error(`[Drive] ${driveFailures.length} file(s) failed to delete:`, driveFailures);
-  }
   return driveFailures;
 };
 
-export const deleteClassroom = async (classroomId) => {
-  const classroomRef = doc(db, 'classrooms', classroomId);
-  const classroomSnap = await getDoc(classroomRef);
+export const deleteClassroom = async (customerId, classroomId) => {
+  const classroom = await getClassroom(customerId, classroomId);
+  if (!classroom) throw new Error('教室が見つかりません');
 
-  if (!classroomSnap.exists()) {
-    throw new Error('教室が見つかりません');
-  }
+  const allIds = await collectClassroomTree(customerId, classroomId);
+  await deleteContentsByClassroomIds(customerId, allIds);
 
-  const classroom = classroomSnap.data();
-
-  // Collect this classroom and all descendants
-  const allIds = await collectClassroomTree(classroomId);
-
-  // Delete all contents in these classrooms
-  await deleteContentsByClassroomIds(allIds);
-
-  // Delete all classrooms in batch
   const batch = writeBatch(db);
   for (const id of allIds) {
-    batch.delete(doc(db, 'classrooms', id));
+    batch.delete(customerDocRef(customerId, 'classrooms', id));
   }
 
-  // If this is a child classroom, decrement parent's childCount
   if (classroom.parentClassroomId) {
-    const parentRef = doc(db, 'classrooms', classroom.parentClassroomId);
+    const parentRef = customerDocRef(customerId, 'classrooms', classroom.parentClassroomId);
     const parentSnap = await getDoc(parentRef);
     if (parentSnap.exists()) {
       batch.update(parentRef, {
@@ -332,22 +335,113 @@ export const deleteClassroom = async (classroomId) => {
   await batch.commit();
 };
 
-// Content functions
-export const getContents = async (classroomId) => {
-  const contentsRef = collection(db, 'contents');
+export const deleteClassrooms = async (customerId, classroomIds) => {
+  const allIdsSet = new Set();
+  const classroomData = {};
+
+  for (const classroomId of classroomIds) {
+    const ids = await collectClassroomTree(customerId, classroomId);
+    ids.forEach(id => allIdsSet.add(id));
+    const classroom = await getClassroom(customerId, classroomId);
+    if (classroom) classroomData[classroomId] = classroom;
+  }
+
+  const allIds = Array.from(allIdsSet);
+  await deleteContentsByClassroomIds(customerId, allIds);
+
+  for (let i = 0; i < allIds.length; i += 400) {
+    const batch = writeBatch(db);
+    const chunk = allIds.slice(i, i + 400);
+    chunk.forEach(id => batch.delete(customerDocRef(customerId, 'classrooms', id)));
+
+    if (i === 0) {
+      const parentUpdates = {};
+      for (const classroomId of classroomIds) {
+        const data = classroomData[classroomId];
+        if (data?.parentClassroomId && !allIdsSet.has(data.parentClassroomId)) {
+          parentUpdates[data.parentClassroomId] = (parentUpdates[data.parentClassroomId] || 0) + 1;
+        }
+      }
+      for (const [parentId, count] of Object.entries(parentUpdates)) {
+        batch.update(customerDocRef(customerId, 'classrooms', parentId), {
+          childCount: increment(-count),
+          updatedAt: serverTimestamp()
+        });
+      }
+    }
+
+    await batch.commit();
+  }
+};
+
+// Get child classrooms
+export const getChildClassrooms = async (customerId, parentId, isAdmin = false) => {
+  if (!customerId) return [];
+  const q = query(
+    customerCollection(customerId, 'classrooms'),
+    where('parentClassroomId', '==', parentId)
+  );
+  const snapshot = await getDocs(q);
+  let classrooms = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+  if (!isAdmin) {
+    classrooms = classrooms.filter(c => c.isActive !== false && c.accessType !== 'draft');
+  }
+
+  return classrooms.sort((a, b) => (a.order || 0) - (b.order || 0));
+};
+
+// Get classroom hierarchy (for breadcrumb)
+export const getClassroomHierarchy = async (customerId, classroomId) => {
+  const hierarchy = [];
+  let currentId = classroomId;
+  while (currentId) {
+    const classroom = await getClassroom(customerId, currentId);
+    if (!classroom) break;
+    hierarchy.unshift(classroom);
+    currentId = classroom.parentClassroomId;
+  }
+  return hierarchy;
+};
+
+export const canCreateChildClassroom = async (customerId, parentId) => {
+  if (!parentId) return true;
+  const parentClassroom = await getClassroom(customerId, parentId);
+  if (!parentClassroom) return false;
+  return parentClassroom.depth < 2;
+};
+
+// Bulk update classroom orders
+export const updateClassroomOrders = async (customerId, orderedClassrooms) => {
+  const batch = writeBatch(db);
+  orderedClassrooms.forEach((classroom, index) => {
+    const ref = customerDocRef(customerId, 'classrooms', classroom.id);
+    batch.update(ref, { order: index, updatedAt: serverTimestamp() });
+  });
+  await batch.commit();
+};
+
+// ══════════════════════════════════════════
+// Content functions (customer-scoped)
+// ══════════════════════════════════════════
+
+export const getContents = async (customerId, classroomId) => {
+  if (!customerId) return [];
+  const contentsRef = customerCollection(customerId, 'contents');
   const q = query(contentsRef, where('classroomId', '==', classroomId), where('isActive', '==', true), orderBy('order', 'asc'));
   const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 };
 
-export const getContent = async (contentId) => {
-  const contentRef = doc(db, 'contents', contentId);
-  const contentSnap = await getDoc(contentRef);
-  return contentSnap.exists() ? { id: contentSnap.id, ...contentSnap.data() } : null;
+export const getContent = async (customerId, contentId) => {
+  if (!customerId) return null;
+  const ref = customerDocRef(customerId, 'contents', contentId);
+  const snap = await getDoc(ref);
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 };
 
-export const createContent = async (data, classroomId, creatorId) => {
-  const contentsRef = collection(db, 'contents');
+export const createContent = async (customerId, data, classroomId, creatorId) => {
+  const contentsRef = customerCollection(customerId, 'contents');
   const docRef = await addDoc(contentsRef, {
     ...data,
     classroomId,
@@ -357,8 +451,7 @@ export const createContent = async (data, classroomId, creatorId) => {
     isActive: true
   });
 
-  // Update classroom content count
-  const classroomRef = doc(db, 'classrooms', classroomId);
+  const classroomRef = customerDocRef(customerId, 'classrooms', classroomId);
   const classroomSnap = await getDoc(classroomRef);
   if (classroomSnap.exists()) {
     await updateDoc(classroomRef, {
@@ -370,15 +463,14 @@ export const createContent = async (data, classroomId, creatorId) => {
   return docRef.id;
 };
 
-export const deleteContent = async (contentId) => {
-  const contentRef = doc(db, 'contents', contentId);
-  const contentSnap = await getDoc(contentRef);
+export const deleteContent = async (customerId, contentId) => {
+  const ref = customerDocRef(customerId, 'contents', contentId);
+  const snap = await getDoc(ref);
 
-  if (contentSnap.exists()) {
-    const content = contentSnap.data();
+  if (snap.exists()) {
+    const content = snap.data();
     const driveFailures = [];
 
-    // Delete files from Google Drive (via Cloud Run API)
     if (content.htmlFileId) {
       const ok = await tryDeleteDriveFile(content.htmlFileId, `html[${contentId}]`);
       if (!ok) driveFailures.push(content.htmlFileId);
@@ -388,8 +480,7 @@ export const deleteContent = async (contentId) => {
       if (!ok) driveFailures.push(content.mp3FileId);
     }
 
-    // Update classroom content count
-    const classroomRef = doc(db, 'classrooms', content.classroomId);
+    const classroomRef = customerDocRef(customerId, 'classrooms', content.classroomId);
     const classroomSnap = await getDoc(classroomRef);
     if (classroomSnap.exists()) {
       await updateDoc(classroomRef, {
@@ -398,306 +489,24 @@ export const deleteContent = async (contentId) => {
       });
     }
 
-    await deleteDoc(contentRef);
+    await deleteDoc(ref);
 
     if (driveFailures.length > 0) {
-      console.error(`[Drive] Failed to delete files for content ${contentId}:`, driveFailures);
       throw new Error(`コンテンツは削除しましたが、Google Driveのファイル ${driveFailures.length}件の削除に失敗しました`);
     }
   }
 };
 
-// Storage functions (using Google Drive via Cloud Run API)
-export const uploadFile = async (file, classroomId) => {
-  const result = await uploadToDrive(auth, file, classroomId);
-  return {
-    path: result.fileId,
-    url: result.url,
-    fileId: result.fileId
-  };
-};
-
-export const hasClassroomAccess = async (userId, classroomId, isAdmin = false) => {
-  if (isAdmin) return true;
-  const classroom = await getClassroom(classroomId);
-  if (!classroom) return false;
-  return classroom.accessType === 'public' || classroom.accessType === 'free';
-};
-
-// Get child classrooms of a parent
-export const getChildClassrooms = async (parentId, isAdmin = false) => {
-  const classroomsRef = collection(db, 'classrooms');
-  // Use simple query without orderBy to avoid requiring composite index
-  const q = query(classroomsRef, where('parentClassroomId', '==', parentId));
-
-  const snapshot = await getDocs(q);
-  let classrooms = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-  // Filter by isActive and accessType in JS (to support legacy data and avoid composite index)
-  if (!isAdmin) {
-    classrooms = classrooms.filter(c => c.isActive !== false && c.accessType !== 'draft');
-  }
-
-  // Sort by order in JS
-  return classrooms.sort((a, b) => (a.order || 0) - (b.order || 0));
-};
-
-// Get classroom hierarchy (for breadcrumb)
-export const getClassroomHierarchy = async (classroomId) => {
-  const hierarchy = [];
-  let currentId = classroomId;
-
-  while (currentId) {
-    try {
-      const classroom = await getClassroom(currentId);
-      if (!classroom) break;
-      hierarchy.unshift(classroom);
-      currentId = classroom.parentClassroomId;
-    } catch (e) {
-      // May fail if parent classroom is private and user is unauthenticated
-      console.warn('Failed to fetch parent classroom in hierarchy:', e);
-      break;
-    }
-  }
-
-  return hierarchy;
-};
-
-// Check if a child classroom can be created under a parent
-export const canCreateChildClassroom = async (parentId) => {
-  if (!parentId) return true; // Can always create root classrooms
-
-  const parentClassroom = await getClassroom(parentId);
-  if (!parentClassroom) return false;
-
-  // Allow 3 levels (parent.depth must be 0 or 1)
-  return parentClassroom.depth < 2;
-};
-
-// Fetch MP3 file from Google Drive as Blob URL (via Cloud Run API - 認証不要)
-export const fetchMp3AsBlob = async (fileId) => {
-  return downloadPublicFile(fileId);
-};
-
-// Find and fix orphaned classrooms (children whose parent no longer exists)
-export const cleanupOrphanedClassrooms = async () => {
-  const classroomsRef = collection(db, 'classrooms');
-  const snapshot = await getDocs(classroomsRef);
-  const allClassrooms = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-  const classroomIds = new Set(allClassrooms.map(c => c.id));
-
-  const orphans = allClassrooms.filter(c =>
-    c.parentClassroomId && !classroomIds.has(c.parentClassroomId)
-  );
-
-  if (orphans.length === 0) return 0;
-
-  const batch = writeBatch(db);
-  for (const orphan of orphans) {
-    batch.update(doc(db, 'classrooms', orphan.id), {
-      parentClassroomId: null,
-      depth: 0,
-      updatedAt: serverTimestamp()
-    });
-  }
-  await batch.commit();
-  return orphans.length;
-};
-
-// Bulk update classroom orders
-export const updateClassroomOrders = async (orderedClassrooms) => {
-  const batch = writeBatch(db);
-  orderedClassrooms.forEach((classroom, index) => {
-    const classroomRef = doc(db, 'classrooms', classroom.id);
-    batch.update(classroomRef, { order: index, updatedAt: serverTimestamp() });
-  });
-  await batch.commit();
-};
-
-// Bulk update content orders
-export const updateContentOrders = async (orderedContents) => {
-  const batch = writeBatch(db);
-  orderedContents.forEach((content, index) => {
-    const contentRef = doc(db, 'contents', content.id);
-    batch.update(contentRef, { order: index, updatedAt: serverTimestamp() });
-  });
-  await batch.commit();
-};
-
-// Bulk delete classrooms
-export const deleteClassrooms = async (classroomIds) => {
-  // Collect all classrooms including descendants
-  const allIdsSet = new Set();
-  const classroomData = {};
-
-  for (const classroomId of classroomIds) {
-    const ids = await collectClassroomTree(classroomId);
-    ids.forEach(id => allIdsSet.add(id));
-    const snap = await getDoc(doc(db, 'classrooms', classroomId));
-    if (snap.exists()) classroomData[classroomId] = snap.data();
-  }
-
-  const allIds = Array.from(allIdsSet);
-
-  // Delete all contents in these classrooms
-  await deleteContentsByClassroomIds(allIds);
-
-  // Delete all classrooms in batch (Firestore batch limit is 500)
-  for (let i = 0; i < allIds.length; i += 400) {
-    const batch = writeBatch(db);
-    const chunk = allIds.slice(i, i + 400);
-    chunk.forEach(id => batch.delete(doc(db, 'classrooms', id)));
-
-    // On first batch, update parent childCounts for top-level selected classrooms
-    if (i === 0) {
-      const parentUpdates = {};
-      for (const classroomId of classroomIds) {
-        const data = classroomData[classroomId];
-        if (data?.parentClassroomId && !allIdsSet.has(data.parentClassroomId)) {
-          parentUpdates[data.parentClassroomId] = (parentUpdates[data.parentClassroomId] || 0) + 1;
-        }
-      }
-      for (const [parentId, count] of Object.entries(parentUpdates)) {
-        batch.update(doc(db, 'classrooms', parentId), {
-          childCount: increment(-count),
-          updatedAt: serverTimestamp()
-        });
-      }
-    }
-
-    await batch.commit();
-  }
-};
-
-// Get all Drive file IDs referenced by remaining contents in Firestore
-export const getAllReferencedDriveFileIds = async () => {
-  const contentsRef = collection(db, 'contents');
-  const snapshot = await getDocs(contentsRef);
-  const fileIds = new Set();
-  snapshot.docs.forEach(d => {
-    const data = d.data();
-    if (data.htmlFileId) fileIds.add(data.htmlFileId);
-    if (data.mp3FileId) fileIds.add(data.mp3FileId);
-  });
-  return Array.from(fileIds);
-};
-
-// Delete Drive files by IDs (for orphan cleanup)
-export const deleteDriveFilesByIds = async (fileIds) => {
-  const results = { success: 0, failed: 0, failedIds: [] };
-  for (const fileId of fileIds) {
-    const ok = await tryDeleteDriveFile(fileId, 'orphan-cleanup');
-    if (ok) {
-      results.success++;
-    } else {
-      results.failed++;
-      results.failedIds.push(fileId);
-    }
-  }
-  return results;
-};
-
-// Watch History functions
-const WATCH_HISTORY_STORAGE_KEY = 'viewerWatchHistory';
-
-// Record watch history (works for both authenticated and anonymous users)
-export const recordWatchHistory = async (userId, contentId) => {
-  const now = new Date().toISOString();
-  console.log('[WatchHistory] Recording:', { userId, contentId, now });
-
-  if (userId) {
-    // Authenticated user: save to Firestore
-    try {
-      const historyRef = doc(db, 'users', userId, 'watchHistory', contentId);
-      await setDoc(historyRef, {
-        watchedAt: serverTimestamp(),
-        lastWatchedAt: serverTimestamp()
-      }, { merge: true });
-      console.log('[WatchHistory] Saved to Firestore');
-    } catch (e) {
-      console.warn('[WatchHistory] Failed to save to Firestore:', e);
-    }
-  }
-
-  // Always save to localStorage (for offline access and anonymous users)
-  try {
-    const stored = localStorage.getItem(WATCH_HISTORY_STORAGE_KEY);
-    const history = stored ? JSON.parse(stored) : {};
-    history[contentId] = {
-      watchedAt: history[contentId]?.watchedAt || now,
-      lastWatchedAt: now
-    };
-    localStorage.setItem(WATCH_HISTORY_STORAGE_KEY, JSON.stringify(history));
-    console.log('[WatchHistory] Saved to localStorage:', history);
-  } catch (e) {
-    console.warn('[WatchHistory] Failed to save to localStorage:', e);
-  }
-};
-
-// Get watch history for multiple contents
-export const getWatchHistory = async (userId, contentIds) => {
-  console.log('[WatchHistory] Getting history for:', { userId, contentIds });
-  const result = {};
-
-  // Get from localStorage first (always available)
-  try {
-    const stored = localStorage.getItem(WATCH_HISTORY_STORAGE_KEY);
-    console.log('[WatchHistory] localStorage raw:', stored);
-    if (stored) {
-      const localHistory = JSON.parse(stored);
-      contentIds.forEach(id => {
-        if (localHistory[id]) {
-          result[id] = {
-            watchedAt: new Date(localHistory[id].watchedAt),
-            lastWatchedAt: new Date(localHistory[id].lastWatchedAt),
-            source: 'local'
-          };
-        }
-      });
-    }
-  } catch (e) {
-    console.warn('[WatchHistory] Failed to read from localStorage:', e);
-  }
-
-  // If authenticated, also check Firestore (and merge, preferring Firestore data)
-  if (userId) {
-    try {
-      const historyRef = collection(db, 'users', userId, 'watchHistory');
-      const snapshot = await getDocs(historyRef);
-      console.log('[WatchHistory] Firestore docs:', snapshot.docs.length);
-      snapshot.docs.forEach(doc => {
-        const id = doc.id;
-        if (contentIds.includes(id)) {
-          const data = doc.data();
-          result[id] = {
-            watchedAt: data.watchedAt?.toDate() || result[id]?.watchedAt,
-            lastWatchedAt: data.lastWatchedAt?.toDate() || result[id]?.lastWatchedAt,
-            source: 'firestore'
-          };
-        }
-      });
-    } catch (e) {
-      console.warn('[WatchHistory] Failed to read from Firestore:', e);
-    }
-  }
-
-  console.log('[WatchHistory] Result:', result);
-  return result;
-};
-
-// Bulk delete contents
-export const deleteContents = async (contentIds) => {
-  // First, get all content data for Drive file cleanup and classroom count updates
+export const deleteContents = async (customerId, contentIds) => {
   const contents = [];
   for (const contentId of contentIds) {
-    const contentRef = doc(db, 'contents', contentId);
-    const contentSnap = await getDoc(contentRef);
-    if (contentSnap.exists()) {
-      contents.push({ id: contentId, ...contentSnap.data() });
+    const ref = customerDocRef(customerId, 'contents', contentId);
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      contents.push({ id: contentId, ...snap.data() });
     }
   }
 
-  // Delete files from Google Drive
   const driveFailures = [];
   for (const content of contents) {
     if (content.htmlFileId) {
@@ -710,11 +519,6 @@ export const deleteContents = async (contentIds) => {
     }
   }
 
-  if (driveFailures.length > 0) {
-    console.error(`[Drive] ${driveFailures.length} file(s) failed to delete:`, driveFailures);
-  }
-
-  // Group contents by classroom for count updates
   const classroomCounts = {};
   contents.forEach(content => {
     if (content.classroomId) {
@@ -722,17 +526,13 @@ export const deleteContents = async (contentIds) => {
     }
   });
 
-  // Batch delete contents and update classroom counts
   const batch = writeBatch(db);
-
   for (const contentId of contentIds) {
-    const contentRef = doc(db, 'contents', contentId);
-    batch.delete(contentRef);
+    batch.delete(customerDocRef(customerId, 'contents', contentId));
   }
 
-  // Update classroom content counts
   for (const [classroomId, count] of Object.entries(classroomCounts)) {
-    const classroomRef = doc(db, 'classrooms', classroomId);
+    const classroomRef = customerDocRef(customerId, 'classrooms', classroomId);
     const classroomSnap = await getDoc(classroomRef);
     if (classroomSnap.exists()) {
       const currentCount = classroomSnap.data().contentCount || 0;
@@ -750,46 +550,204 @@ export const deleteContents = async (contentIds) => {
   }
 };
 
-// Sync classroom contentCount with actual contents and repair missing isActive fields
-export const syncContentCounts = async () => {
-  const classroomsSnap = await getDocs(collection(db, 'classrooms'));
+// Bulk update content orders
+export const updateContentOrders = async (customerId, orderedContents) => {
   const batch = writeBatch(db);
-  let countUpdated = 0;
-  let contentsRepaired = 0;
+  orderedContents.forEach((content, index) => {
+    const ref = customerDocRef(customerId, 'contents', content.id);
+    batch.update(ref, { order: index, updatedAt: serverTimestamp() });
+  });
+  await batch.commit();
+};
+
+// ══════════════════════════════════════════
+// Storage / Drive functions
+// ══════════════════════════════════════════
+
+export const uploadFile = async (file, classroomId) => {
+  const result = await uploadToDrive(auth, file, classroomId);
+  return {
+    path: result.fileId,
+    url: result.url,
+    fileId: result.fileId
+  };
+};
+
+export const fetchMp3AsBlob = async (fileId) => {
+  return downloadPublicFile(fileId);
+};
+
+// ══════════════════════════════════════════
+// Access control
+// ══════════════════════════════════════════
+
+export const hasClassroomAccess = async (customerId, userId, classroomId, isAdmin = false) => {
+  if (isAdmin) return true;
+  const classroom = await getClassroom(customerId, classroomId);
+  if (!classroom) return false;
+  return classroom.accessType === 'public' || classroom.accessType === 'free';
+};
+
+// ══════════════════════════════════════════
+// Watch History
+// ══════════════════════════════════════════
+
+const WATCH_HISTORY_STORAGE_KEY = 'viewerWatchHistory';
+
+export const recordWatchHistory = async (userId, contentId) => {
+  const now = new Date().toISOString();
+
+  if (userId) {
+    try {
+      const historyRef = doc(db, 'users', userId, 'watchHistory', contentId);
+      await setDoc(historyRef, {
+        watchedAt: serverTimestamp(),
+        lastWatchedAt: serverTimestamp()
+      }, { merge: true });
+    } catch (e) {
+      console.warn('[WatchHistory] Failed to save to Firestore:', e);
+    }
+  }
+
+  try {
+    const stored = localStorage.getItem(WATCH_HISTORY_STORAGE_KEY);
+    const history = stored ? JSON.parse(stored) : {};
+    history[contentId] = {
+      watchedAt: history[contentId]?.watchedAt || now,
+      lastWatchedAt: now
+    };
+    localStorage.setItem(WATCH_HISTORY_STORAGE_KEY, JSON.stringify(history));
+  } catch (e) {
+    console.warn('[WatchHistory] Failed to save to localStorage:', e);
+  }
+};
+
+export const getWatchHistory = async (userId, contentIds) => {
+  const result = {};
+
+  try {
+    const stored = localStorage.getItem(WATCH_HISTORY_STORAGE_KEY);
+    if (stored) {
+      const localHistory = JSON.parse(stored);
+      contentIds.forEach(id => {
+        if (localHistory[id]) {
+          result[id] = {
+            watchedAt: new Date(localHistory[id].watchedAt),
+            lastWatchedAt: new Date(localHistory[id].lastWatchedAt),
+            source: 'local'
+          };
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('[WatchHistory] Failed to read from localStorage:', e);
+  }
+
+  if (userId) {
+    try {
+      const historyRef = collection(db, 'users', userId, 'watchHistory');
+      const snapshot = await getDocs(historyRef);
+      snapshot.docs.forEach(doc => {
+        const id = doc.id;
+        if (contentIds.includes(id)) {
+          const data = doc.data();
+          result[id] = {
+            watchedAt: data.watchedAt?.toDate() || result[id]?.watchedAt,
+            lastWatchedAt: data.lastWatchedAt?.toDate() || result[id]?.lastWatchedAt,
+            source: 'firestore'
+          };
+        }
+      });
+    } catch (e) {
+      console.warn('[WatchHistory] Failed to read from Firestore:', e);
+    }
+  }
+
+  return result;
+};
+
+// ══════════════════════════════════════════
+// Maintenance utilities
+// ══════════════════════════════════════════
+
+export const cleanupOrphanedClassrooms = async (customerId) => {
+  const classroomsRef = customerCollection(customerId, 'classrooms');
+  const snapshot = await getDocs(classroomsRef);
+  const allClassrooms = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+  const classroomIds = new Set(allClassrooms.map(c => c.id));
+
+  const orphans = allClassrooms.filter(c =>
+    c.parentClassroomId && !classroomIds.has(c.parentClassroomId)
+  );
+
+  if (orphans.length === 0) return 0;
+
+  const batch = writeBatch(db);
+  for (const orphan of orphans) {
+    batch.update(customerDocRef(customerId, 'classrooms', orphan.id), {
+      parentClassroomId: null,
+      depth: 0,
+      updatedAt: serverTimestamp()
+    });
+  }
+  await batch.commit();
+  return orphans.length;
+};
+
+export const syncContentCounts = async (customerId) => {
+  const classroomsSnap = await getDocs(customerCollection(customerId, 'classrooms'));
+  const batch = writeBatch(db);
+  let updated = 0;
 
   for (const classroomDoc of classroomsSnap.docs) {
     const contentsQuery = query(
-      collection(db, 'contents'),
+      customerCollection(customerId, 'contents'),
       where('classroomId', '==', classroomDoc.id)
     );
     const contentsSnap = await getDocs(contentsQuery);
 
-    // Repair contents missing isActive field (causes getContents to return 0)
     let activeCount = 0;
     for (const contentDoc of contentsSnap.docs) {
       const data = contentDoc.data();
       if (data.isActive === undefined || data.isActive === null) {
         batch.update(contentDoc.ref, { isActive: true });
-        contentsRepaired++;
+        updated++;
       }
-      if (data.isActive !== false) {
-        activeCount++;
-      }
+      if (data.isActive !== false) activeCount++;
     }
 
-    // Fix contentCount if desynced
     const storedCount = classroomDoc.data().contentCount || 0;
     if (activeCount !== storedCount) {
       batch.update(classroomDoc.ref, {
         contentCount: activeCount,
         updatedAt: serverTimestamp()
       });
-      countUpdated++;
+      updated++;
     }
   }
 
-  if (countUpdated > 0 || contentsRepaired > 0) {
-    await batch.commit();
+  if (updated > 0) await batch.commit();
+  return updated;
+};
+
+export const getAllReferencedDriveFileIds = async (customerId) => {
+  const contentsRef = customerCollection(customerId, 'contents');
+  const snapshot = await getDocs(contentsRef);
+  const fileIds = new Set();
+  snapshot.docs.forEach(d => {
+    const data = d.data();
+    if (data.htmlFileId) fileIds.add(data.htmlFileId);
+    if (data.mp3FileId) fileIds.add(data.mp3FileId);
+  });
+  return Array.from(fileIds);
+};
+
+export const deleteDriveFilesByIds = async (fileIds) => {
+  const results = { success: 0, failed: 0, failedIds: [] };
+  for (const fileId of fileIds) {
+    const ok = await tryDeleteDriveFile(fileId, 'orphan-cleanup');
+    if (ok) results.success++;
+    else { results.failed++; results.failedIds.push(fileId); }
   }
-  return countUpdated + contentsRepaired;
+  return results;
 };
