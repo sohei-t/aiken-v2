@@ -8,6 +8,7 @@ import ClassroomPage from './pages/ClassroomPage';
 import ViewerPage from './pages/ViewerPage';
 import AdminPage from './pages/AdminPage';
 import DashboardPage from './pages/DashboardPage';
+import AdminDashboard from './components/admin/AdminDashboard';
 import ClassroomManager from './components/admin/ClassroomManager';
 import UserManager from './components/admin/UserManager';
 import ContentUploader from './components/content/ContentUploader';
@@ -41,7 +42,8 @@ function App() {
               </ProtectedRoute>
             }
           >
-            <Route index element={<Navigate to="/admin/classrooms" replace />} />
+            <Route index element={<Navigate to="/admin/dashboard" replace />} />
+            <Route path="dashboard" element={<AdminDashboard />} />
             <Route path="classrooms" element={<ClassroomManager />} />
             <Route path="classrooms/:classroomId/upload" element={<ContentUploader />} />
             <Route path="users" element={<UserManager />} />
