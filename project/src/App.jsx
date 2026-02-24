@@ -12,6 +12,7 @@ import AdminDashboard from './components/admin/AdminDashboard';
 import ClassroomManager from './components/admin/ClassroomManager';
 import UserManager from './components/admin/UserManager';
 import ProgressTracker from './components/admin/ProgressTracker';
+import ApiSettings from './components/admin/ApiSettings';
 import ContentUploader from './components/content/ContentUploader';
 import './index.css';
 
@@ -49,6 +50,7 @@ function App() {
             <Route path="classrooms/:classroomId/upload" element={<ContentUploader />} />
             <Route path="users" element={<UserManager />} />
             <Route path="progress" element={<ProgressTracker />} />
+            <Route path="settings" element={<ApiSettings />} />
           </Route>
 
           {/* Fallback */}

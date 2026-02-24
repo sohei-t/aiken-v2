@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation, Navigate } from 'react-router-dom';
-import { BookOpen, Users, LayoutDashboard, BarChart3, Loader2 } from 'lucide-react';
+import { BookOpen, Users, LayoutDashboard, BarChart3, Settings, Loader2 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import Layout from '../components/layout/Layout';
 
@@ -24,6 +24,7 @@ const AdminPage = () => {
     { to: '/admin/classrooms', icon: BookOpen, label: '教室管理' },
     { to: '/admin/users', icon: Users, label: 'ユーザー管理' },
     { to: '/admin/progress', icon: BarChart3, label: '進捗管理' },
+    { to: '/admin/settings', icon: Settings, label: 'AI設定' },
   ];
 
   return (

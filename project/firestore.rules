@@ -34,10 +34,16 @@ service cloud.firestore {
       allow update: if isAuthenticated() && (request.auth.uid == userId || isPlatformAdmin());
       allow delete: if isPlatformAdmin();
 
-      // Watch history subcollection (user-scoped, not customer-scoped)
+      // Watch history subcollection
       match /watchHistory/{contentId} {
         allow read, write: if isAuthenticated() && request.auth.uid == userId;
         allow read, delete: if isPlatformAdmin();
+      }
+
+      // Quiz results subcollection
+      match /quizResults/{quizId} {
+        allow read, write: if isAuthenticated() && request.auth.uid == userId;
+        allow read: if isPlatformAdmin();
       }
     }
 
@@ -58,6 +64,18 @@ service cloud.firestore {
       match /contents/{contentId} {
         allow read: if isCustomerMember(customerId) || isPlatformAdmin();
         allow create, update, delete: if isCustomerAdmin(customerId) || isPlatformAdmin();
+      }
+
+      // Customer-scoped quizzes
+      match /quizzes/{quizId} {
+        allow read: if isCustomerMember(customerId) || isPlatformAdmin();
+        allow create, update, delete: if isCustomerAdmin(customerId) || isPlatformAdmin();
+      }
+
+      // Customer settings (API keys, etc.)
+      match /settings/{settingId} {
+        allow read: if isCustomerMember(customerId) || isPlatformAdmin();
+        allow write: if isCustomerAdmin(customerId) || isPlatformAdmin();
       }
     }
   }
