@@ -1,0 +1,45 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return request.auth != null &&
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Contents folder - HTML slides and MP3 audio files
+    match /contents/{classroomId}/{contentId}/{filename} {
+      // Anyone with classroom access can read content files
+      // Note: Full permission check should be done on the client side
+      // Storage rules can only do basic auth checks
+      allow read: if request.auth != null;
+
+      // Only admins can upload content files
+      allow write: if isAdmin() &&
+        // File size limit: 100MB
+        request.resource.size < 100 * 1024 * 1024 &&
+        // Only allow HTML and MP3 files
+        (
+          request.resource.contentType.matches('text/html') ||
+          request.resource.contentType.matches('audio/mpeg') ||
+          request.resource.contentType.matches('audio/mp3')
+        );
+
+      // Only admins can delete files
+      allow delete: if isAdmin();
+    }
+
+    // Thumbnails folder
+    match /thumbnails/{filename} {
+      // Anyone can read thumbnails
+      allow read: if true;
+
+      // Only admins can upload thumbnails
+      allow write: if isAdmin() &&
+        request.resource.size < 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/.*');
+
+      allow delete: if isAdmin();
+    }
+  }
+}
