@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { User, ShieldCheck, Search, Loader2, AlertCircle, CheckCircle, UserPlus, Trash2, X, Eye, EyeOff, Mail, Copy, Check, Crown } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
-import { getAllUsers, updateUserRole, deleteUser, createUserByAdmin } from '../../services/firebase';
+import { getCustomerUsers, updateUserRole, deleteUser, createUserByAdmin } from '../../services/firebase';
 
 const APP_URL = window.location.origin;
 
@@ -38,7 +38,7 @@ const AddUserModal = ({ onClose, onUserCreated, customerId }) => {
     return [
       `${greeting}`,
       '',
-      'Video Platform のアカウントが作成されました。',
+      'AIKEN のアカウントが作成されました。',
       '以下の情報でログインしてください。',
       '',
       '━━━━━━━━━━━━━━━━━━━━',
@@ -92,7 +92,7 @@ const AddUserModal = ({ onClose, onUserCreated, customerId }) => {
   };
 
   const handleSendEmail = () => {
-    const subject = encodeURIComponent('【Video Platform】アカウント作成のお知らせ');
+    const subject = encodeURIComponent('【AIKEN】アカウント作成のお知らせ');
     const body = encodeURIComponent(buildEmailBody(createdResult.email, createdResult.password, createdResult.displayName));
     window.open(`mailto:${createdResult.email}?subject=${subject}&body=${body}`, '_blank');
   };
@@ -258,8 +258,9 @@ const UserManager = () => {
   const [message, setMessage] = useState(null);
 
   const fetchData = async () => {
+    if (!customerId) return;
     try {
-      const usersData = await getAllUsers();
+      const usersData = await getCustomerUsers(customerId);
       setUsers(usersData);
     } catch (err) {
       console.error('Failed to fetch data:', err);
@@ -271,7 +272,7 @@ const UserManager = () => {
 
   useEffect(() => {
     fetchData();
-  }, [currentUser]);
+  }, [customerId]);
 
   const handleRoleChange = async (userId, newRole) => {
     try {

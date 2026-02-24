@@ -751,3 +751,60 @@ export const deleteDriveFilesByIds = async (fileIds) => {
   }
   return results;
 };
+
+// ══════════════════════════════════════════
+// Dashboard Stats
+// ══════════════════════════════════════════
+
+export const getDashboardStats = async (customerId) => {
+  if (!customerId) return { classroomCount: 0, contentCount: 0, userCount: 0 };
+
+  const [classroomsSnap, contentsSnap, usersSnap] = await Promise.all([
+    getDocs(customerCollection(customerId, 'classrooms')),
+    getDocs(customerCollection(customerId, 'contents')),
+    getDocs(query(collection(db, 'users'), where('customerId', '==', customerId))),
+  ]);
+
+  return {
+    classroomCount: classroomsSnap.size,
+    contentCount: contentsSnap.size,
+    userCount: usersSnap.size,
+  };
+};
+
+// Get all users belonging to a customer
+export const getCustomerUsers = async (customerId) => {
+  if (!customerId) return [];
+  const q = query(collection(db, 'users'), where('customerId', '==', customerId));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+};
+
+// Get watch progress for all users in a customer across all contents
+export const getCustomerProgress = async (customerId) => {
+  if (!customerId) return {};
+
+  // Get all contents for this customer
+  const contentsSnap = await getDocs(customerCollection(customerId, 'contents'));
+  const contentIds = contentsSnap.docs.map(d => d.id);
+  if (contentIds.length === 0) return {};
+
+  // Get all users for this customer
+  const users = await getCustomerUsers(customerId);
+  const progress = {};
+
+  for (const user of users) {
+    const historyRef = collection(db, 'users', user.id, 'watchHistory');
+    const historySnap = await getDocs(historyRef);
+    const watchedContentIds = new Set(historySnap.docs.map(d => d.id));
+
+    const watchedCount = contentIds.filter(id => watchedContentIds.has(id)).length;
+    progress[user.id] = {
+      watchedCount,
+      totalCount: contentIds.length,
+      progressPercent: contentIds.length > 0 ? Math.round((watchedCount / contentIds.length) * 100) : 0,
+    };
+  }
+
+  return progress;
+};

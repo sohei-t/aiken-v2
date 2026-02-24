@@ -316,10 +316,10 @@ const TopPage = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
           <div className="text-center">
             <h1 className="text-3xl sm:text-4xl font-bold">
-              スライド学習プラットフォーム
+              AIKEN 研修プラットフォーム
             </h1>
             <p className="mt-4 text-lg text-blue-100 max-w-2xl mx-auto">
-              HTMLスライドと音声解説で、効率的に学習を進めましょう
+              AIが作成した研修コンテンツで、効率的に学習を進めましょう
             </p>
             {!isAuthenticated && (
               <Link
