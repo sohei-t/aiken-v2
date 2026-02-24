@@ -1,6 +1,6 @@
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, orderBy, serverTimestamp, writeBatch, increment } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, orderBy, serverTimestamp, writeBatch, increment, limit as firestoreLimit } from 'firebase/firestore';
 import { uploadToDrive, deleteFromDrive, downloadPublicFile } from './driveApi';
 
 // Firebase configuration
@@ -807,4 +807,89 @@ export const getCustomerProgress = async (customerId) => {
   }
 
   return progress;
+};
+
+// ══════════════════════════════════════════
+// Quiz Management
+// ══════════════════════════════════════════
+
+// Quiz structure: { contentId, title, questions: [{ question, options: string[], correctIndex, explanation }], passingScore, createdAt }
+
+export const getQuiz = async (customerId, contentId) => {
+  if (!customerId || !contentId) return null;
+  const q = query(
+    customerCollection(customerId, 'quizzes'),
+    where('contentId', '==', contentId),
+    firestoreLimit(1)
+  );
+  const snap = await getDocs(q);
+  if (snap.empty) return null;
+  return { id: snap.docs[0].id, ...snap.docs[0].data() };
+};
+
+export const saveQuiz = async (customerId, quizData) => {
+  if (!customerId) throw new Error('customerId required');
+  const { id, ...data } = quizData;
+  if (id) {
+    // Update existing quiz
+    const ref = customerDocRef(customerId, 'quizzes', id);
+    await updateDoc(ref, { ...data, updatedAt: serverTimestamp() });
+    return { id, ...data };
+  } else {
+    // Create new quiz
+    const ref = await addDoc(customerCollection(customerId, 'quizzes'), {
+      ...data,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return { id: ref.id, ...data };
+  }
+};
+
+export const deleteQuiz = async (customerId, quizId) => {
+  if (!customerId || !quizId) return;
+  await deleteDoc(customerDocRef(customerId, 'quizzes', quizId));
+};
+
+// Quiz results - stored per user
+export const saveQuizResult = async (userId, quizId, result) => {
+  if (!userId || !quizId) return;
+  const ref = doc(db, 'users', userId, 'quizResults', quizId);
+  await setDoc(ref, {
+    ...result,
+    completedAt: serverTimestamp(),
+  }, { merge: true });
+};
+
+export const getQuizResult = async (userId, quizId) => {
+  if (!userId || !quizId) return null;
+  const ref = doc(db, 'users', userId, 'quizResults', quizId);
+  const snap = await getDoc(ref);
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+};
+
+export const getQuizResults = async (userId) => {
+  if (!userId) return {};
+  const ref = collection(db, 'users', userId, 'quizResults');
+  const snap = await getDocs(ref);
+  const results = {};
+  snap.docs.forEach(d => { results[d.id] = { id: d.id, ...d.data() }; });
+  return results;
+};
+
+// ══════════════════════════════════════════
+// Customer Settings (API keys, etc.)
+// ══════════════════════════════════════════
+
+export const getCustomerSettings = async (customerId) => {
+  if (!customerId) return {};
+  const ref = doc(db, 'customers', customerId, 'settings', 'config');
+  const snap = await getDoc(ref);
+  return snap.exists() ? snap.data() : {};
+};
+
+export const updateCustomerSettings = async (customerId, settings) => {
+  if (!customerId) return;
+  const ref = doc(db, 'customers', customerId, 'settings', 'config');
+  await setDoc(ref, { ...settings, updatedAt: serverTimestamp() }, { merge: true });
 };

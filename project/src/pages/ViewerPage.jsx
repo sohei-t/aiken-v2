@@ -8,6 +8,7 @@ import { useAuth } from '../hooks/useAuth';
 import { getContent, getContents, getClassroom, hasClassroomAccess, fetchMp3AsBlob, recordWatchHistory } from '../services/firebase';
 import Layout from '../components/layout/Layout';
 import ChatPanel from '../components/content/ChatPanel';
+import QuizPanel from '../components/content/QuizPanel';
 
 // AudioPlayer with external control support
 const AudioPlayer = forwardRef(({ fileId, onPlayStateChange, onEnded, initialPlaybackRate = 1, onPlaybackRateChange, onLoadingChange }, ref) => {
@@ -1403,6 +1404,8 @@ const ViewerPage = () => {
           classroomName={classroom?.name}
         />
       )}
+      {/* Quiz Panel */}
+      <QuizPanel contentId={contentId} customerId={customerId} />
     </>
   );
 };
