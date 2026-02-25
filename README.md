@@ -1,3 +1,7 @@
+![CI](https://github.com/sohei-t/aiken-v2/actions/workflows/ci.yml/badge.svg)
+![React](https://img.shields.io/badge/React-19-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
+
 # AIKEN v2 - AI研修代行システム
 
 **あなたの研修、AIが代行します**
