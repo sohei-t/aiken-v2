@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, memo } from 'react';
+import React, { useState, useEffect, useMemo, memo } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Edit2, Trash2, Lock, Globe, Upload, Loader2, AlertCircle, CheckCircle, ChevronDown, ChevronRight, Play, Clock, Calendar, GripVertical, Square, CheckSquare, FolderPlus, CornerDownRight } from 'lucide-react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
@@ -79,7 +79,7 @@ const ClassroomForm: React.FC<ClassroomFormProps> = ({ classroom, onSave, onCanc
             <option value="">（なし - ルート教室として作成）</option>
             {parentClassrooms.map(p => (
               <option key={p.id} value={p.id}>
-                {(p.depth || 0) > 0 ? `　└ ${p.name}` : p.name}
+                {(p.depth || 0) > 0 ? `\u3000└ ${p.name}` : p.name}
               </option>
             ))}
           </select>

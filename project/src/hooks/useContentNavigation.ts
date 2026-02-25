@@ -16,7 +16,7 @@ interface UseContentNavigationReturn {
   contentNavigationProps: ContentNavigation | null;
 }
 
-export const useContentNavigation = (contentId: string | undefined): UseContentNavigationReturn => {
+export const useContentNavigation = (_contentId: string | undefined): UseContentNavigationReturn => {
   const navigate = useNavigate();
   const [allContents, setAllContents] = useState<Content[]>([]);
   const [currentIndex, setCurrentIndex] = useState<number>(-1);

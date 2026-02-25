@@ -400,7 +400,7 @@ type SortDirection = 'asc' | 'desc';
 
 const ClassroomPage: React.FC = () => {
   const { classroomId } = useParams<{ classroomId: string }>();
-  const navigate = useNavigate();
+  const _navigate = useNavigate();
   const location = useLocation();
   const { isAuthenticated, isAdmin, customerId, user, loading: authLoading } = useAuth();
   const [classroom, setClassroom] = useState<Classroom | null>(null);

@@ -406,13 +406,13 @@ const SlideViewer: React.FC<SlideViewerProps> = ({
   isAudioLoading,
   contentNavigation,
   headerInfo,
-  audioPlayerComponent,
+  audioPlayerComponent: _audioPlayerComponent,
   audioCurrentTime,
   audioDuration,
   onAudioSeek,
   onAudioSkip,
 }) => {
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(true); // Default to fullscreen
+  const [isFullscreen, _setIsFullscreen] = useState<boolean>(true); // Default to fullscreen
   const [slideInfo, setSlideInfo] = useState<SlideInfo>({ current: 1, total: 1 });
   const [showAudioBar, setShowAudioBar] = useState<boolean>(false);
   const audioBarTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -432,7 +432,7 @@ const SlideViewer: React.FC<SlideViewerProps> = ({
   };
 
   // Toggle audio bar visibility
-  const toggleAudioBar = (): void => {
+  const _toggleAudioBar = (): void => {
     if (showAudioBar) {
       setShowAudioBar(false);
       if (audioBarTimeoutRef.current) {
@@ -675,7 +675,7 @@ const SlideViewer: React.FC<SlideViewerProps> = ({
     goToSlide(slideInfo.current); // current is 1-indexed, so this goes to next
   };
 
-  const goToFirstSlide = (): void => {
+  const _goToFirstSlide = (): void => {
     goToSlide(0);
   };
 
@@ -726,11 +726,11 @@ const SlideViewer: React.FC<SlideViewerProps> = ({
         if (iframeWindow) {
           iframeWindow.scrollTo(0, 0);
         }
-      } catch (e) {
+      } catch {
         // Cross-origin restriction - script injection should handle it
       }
     }
-    setSlideInfo({ current: 1, total: 1 });
+    setTimeout(() => setSlideInfo({ current: 1, total: 1 }), 0);
   }, [htmlContent]);
 
   // Detect slides after iframe loads
@@ -801,7 +801,7 @@ const SlideViewer: React.FC<SlideViewerProps> = ({
   // Full screen mode - covers entire viewport (default view)
   // Minimalist overlay UI for maximum content visibility
   if (isFullscreen) {
-    const hasContentNav = contentNavigation && contentNavigation.totalContents > 1;
+    const _hasContentNav = contentNavigation && contentNavigation.totalContents > 1;
 
     return (
       <div
@@ -1076,7 +1076,7 @@ const SlideViewer: React.FC<SlideViewerProps> = ({
 };
 
 // YouTube URL -> embed URL conversion
-const convertToYouTubeEmbedUrl = (url: string | undefined): string | null => {
+const _convertToYouTubeEmbedUrl = (url: string | undefined): string | null => {
   if (!url) return null;
   if (url.includes('/embed/')) return url;
   const watchMatch = url.match(/[?&]v=([^&]+)/);
